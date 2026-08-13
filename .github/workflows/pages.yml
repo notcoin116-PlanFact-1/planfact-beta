@@ -19,25 +19,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Build and validate Beta
+      - name: Restore original PlanFact frontend
         shell: bash
         run: |
           set -euo pipefail
           rm -rf site
           mkdir -p site
-          curl --fail --silent --show-error --location 'https://vjglqivddspcolrzxmxt.supabase.co/functions/v1/planfact-beta-site' --output site/index.html
-          python3 scripts/build_beta.py site/index.html
-          python3 scripts/support_patch.py site/index.html
-          python3 scripts/classic_ui_patch.py site/index.html
+          curl --fail --silent --show-error --location 'https://planfact-trader.stockspeculator.chatgpt.site/' --output site/index.html
           python3 - <<'PY'
           from pathlib import Path
-          s=Path('site/index.html').read_text(encoding='utf-8')
-          a=s.rfind('<script>'); b=s.rfind('</script>')
-          if a < 0 or b <= a: raise SystemExit('final inline script missing')
-          Path('site/final-check.js').write_text(s[a+8:b],encoding='utf-8')
+          p=Path('site/index.html')
+          s=p.read_text(encoding='utf-8')
+          if '<head>' in s and '<base ' not in s:
+              s=s.replace('<head>','<head><base href="https://planfact-trader.stockspeculator.chatgpt.site/">',1)
+          p.write_text(s,encoding='utf-8')
           PY
-          node --check site/final-check.js
-          rm site/final-check.js
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
