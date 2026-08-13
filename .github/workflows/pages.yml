@@ -1,51 +1,92 @@
-name: Deploy GitHub Pages
+name: Recover exact Site v28
 on:
   push:
-    branches: ["main"]
-  workflow_dispatch:
+    branches: ["recover-exact-site-v28"]
 permissions:
   contents: read
-  pages: write
-  id-token: write
-concurrency:
-  group: pages
-  cancel-in-progress: true
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  recover:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Restore exact original PlanFact Site v28
+      - name: Mirror original PlanFact Site with all assets
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf site
-          mkdir -p site
-          curl --fail --silent --show-error --location 'https://planfact-trader.stockspeculator.chatgpt.site/' --output site/index.html
-          test -s site/index.html
-          grep -q '<title>PlanFact Trader</title>' site/index.html
-          grep -q 'assets/index-Da-M0CQm.css' site/index.html
+          rm -rf recovered-site
+          mkdir -p recovered-site
           python3 - <<'PY'
+          from urllib.request import Request, urlopen
+          from urllib.parse import urljoin, urlparse
           from pathlib import Path
-          p=Path('site/index.html')
-          s=p.read_text(encoding='utf-8')
-          # Keep the exact original HTML/CSS/JS. Only make relative assets resolve
-          # against the original Site v28 host when served from GitHub Pages.
-          if '<head>' in s and '<base ' not in s:
-              s=s.replace('<head>','<head><base href="https://planfact-trader.stockspeculator.chatgpt.site/">',1)
-          p.write_text(s,encoding='utf-8')
+          import re, hashlib, json
+
+          ORIGIN='https://planfact-trader.stockspeculator.chatgpt.site/'
+          host=urlparse(ORIGIN).netloc
+          root=Path('recovered-site')
+          queue=[ORIGIN]
+          seen=set()
+          text_ext={'.html','.js','.css','.json','.svg','.txt','.map'}
+
+          def fetch(url):
+              req=Request(url,headers={'User-Agent':'Mozilla/5.0 PlanFact-Recovery'})
+              with urlopen(req,timeout=30) as r:
+                  return r.read(), r.headers.get('Content-Type','')
+
+          def local_path(url):
+              p=urlparse(url).path
+              if not p or p.endswith('/'):
+                  p=p+'index.html'
+              return root / p.lstrip('/')
+
+          while queue:
+              url=queue.pop(0)
+              if url in seen: continue
+              seen.add(url)
+              u=urlparse(url)
+              if u.netloc!=host: continue
+              try:
+                  data,ctype=fetch(url)
+              except Exception as e:
+                  print('FETCH_FAIL',url,repr(e))
+                  continue
+              lp=local_path(url)
+              lp.parent.mkdir(parents=True,exist_ok=True)
+              lp.write_bytes(data)
+              is_text=('text/' in ctype or 'javascript' in ctype or 'json' in ctype or lp.suffix.lower() in text_ext)
+              if not is_text: continue
+              text=data.decode('utf-8','ignore')
+              refs=set()
+              for m in re.findall(r'''(?:src|href)=["']([^"']+)["']''',text): refs.add(m)
+              for m in re.findall(r'''(?:url\(|from\s*|import\s*\()["']?([^"')\s]+)''',text): refs.add(m)
+              for m in re.findall(r'''["'](/assets/[^"']+)["']''',text): refs.add(m)
+              for m in re.findall(r'''["'](\./[^"']+\.(?:js|css|svg|png|webp|jpg|jpeg|woff|woff2|map))["']''',text): refs.add(m)
+              for ref in refs:
+                  if ref.startswith(('data:','blob:','mailto:','tel:','#')): continue
+                  nu=urljoin(url,ref)
+                  if urlparse(nu).netloc==host and nu not in seen:
+                      queue.append(nu)
+
+          report=[]
+          markers=['Стартовый цикл','Последний вывод','НАСТРОЙКИ ОДИН РАЗ','Мои биржи','Защищённые данные','Доступ тестировщиков','Добавить новую сделку']
+          alltext=''
+          for p in root.rglob('*'):
+              if p.is_file():
+                  b=p.read_bytes()
+                  report.append({'path':str(p.relative_to(root)),'size':len(b),'sha256':hashlib.sha256(b).hexdigest()})
+                  if p.suffix.lower() in text_ext:
+                      alltext += '\n'+b.decode('utf-8','ignore')
+          verification={m:(m in alltext) for m in markers}
+          Path('recovery-report.json').write_text(json.dumps({'files':report,'markers':verification},ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(verification,ensure_ascii=False))
+          print('FILES',len(report))
           PY
-          echo "Exact Site v28 HTML restored: $(wc -c < site/index.html) bytes"
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Upload recovered exact site
+        uses: actions/upload-artifact@v4
         with:
-          path: ./site
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          name: recovered-site-v28
+          path: |
+            recovered-site
+            recovery-report.json
+          retention-days: 1
