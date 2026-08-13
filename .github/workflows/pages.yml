@@ -1,10 +1,11 @@
-name: Deploy exact PlanFact Site v28
+name: Deploy frozen exact PlanFact Site v28
 on:
   push:
     branches: ["main"]
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 concurrency:
@@ -19,89 +20,58 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Recover and verify exact original Site v28
+      - name: Restore frozen verified Site v28 artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf site
-          mkdir -p site
+          rm -rf site artifact.zip
+          gh api repos/${GITHUB_REPOSITORY}/actions/artifacts/9184915103/zip > artifact.zip
           python3 - <<'PY'
-          from urllib.request import Request, urlopen
-          from urllib.parse import urljoin, urlparse
           from pathlib import Path
-          import re, hashlib
+          from zipfile import ZipFile
+          import hashlib
 
-          ORIGIN='https://planfact-trader.stockspeculator.chatgpt.site/'
-          HOST=urlparse(ORIGIN).netloc
-          ROOT=Path('site')
-          EXPECTED={
-            'index.html':'bbac8760417ac3d49a429ebbbed5b97ea2615d71caa14a71908265155113d638',
+          root=Path('site')
+          root.mkdir()
+          with ZipFile('artifact.zip') as z:
+              for name in z.namelist():
+                  if not name.startswith('recovered-site/') or name.endswith('/'):
+                      continue
+                  rel=name[len('recovered-site/'):]
+                  if not rel or '\\' in rel:
+                      continue
+                  p=root/rel
+                  p.parent.mkdir(parents=True,exist_ok=True)
+                  p.write_bytes(z.read(name))
+
+          expected={
             'favicon.svg':'e6d2e59b7b5bbb0342e0fb496dfc262decbfe4426bbb7b047aec8d467d1dc6f7',
             'assets/index-CyPh85IR.js':'6d3b58d05778dd9e32d6adaf19b75c46ec60a5aa07eeaf88da61b861a6075385',
             'assets/page-W1M-VqDA.js':'e9a0b56499567d324b4861b7ffe8e1305c9960f78128ae3a12b3a1af7cfcd473',
             'assets/index-Da-M0CQm.css':'1f7f8d840b01ddad29b9641dd585ceb96d8eb674c53a92746ce504f01e12c5d2',
             'assets/framework-CXnKph_e.js':'73b45b606448e4dc310fbe851d8089ee752f3eb081980b3a6fec88988820ee12'
           }
-          queue=[ORIGIN]
-          seen=set()
-          text_ext={'.html','.js','.css','.json','.svg','.txt','.map'}
-
-          def fetch(url):
-              req=Request(url,headers={'User-Agent':'Mozilla/5.0 PlanFact-Site-v28-Recovery'})
-              with urlopen(req,timeout=30) as r:
-                  return r.read(),r.headers.get('Content-Type','')
-
-          def path_for(url):
-              p=urlparse(url).path
-              if not p or p.endswith('/'):
-                  p += 'index.html'
-              return ROOT/p.lstrip('/')
-
-          while queue:
-              url=queue.pop(0)
-              if url in seen: continue
-              seen.add(url)
-              if urlparse(url).netloc!=HOST: continue
-              data,ctype=fetch(url)
-              lp=path_for(url)
-              lp.parent.mkdir(parents=True,exist_ok=True)
-              lp.write_bytes(data)
-              is_text=('text/' in ctype or 'javascript' in ctype or 'json' in ctype or lp.suffix.lower() in text_ext)
-              if not is_text: continue
-              text=data.decode('utf-8','ignore')
-              refs=set(re.findall(r'''(?:src|href)=["']([^"']+)["']''',text))
-              refs.update(re.findall(r'''["'](/assets/[^"']+)["']''',text))
-              refs.update(re.findall(r'''["'](\./[^"']+\.(?:js|css|svg|png|webp|jpg|jpeg|woff|woff2|map))["']''',text))
-              refs.update(re.findall(r'''url\(["']?([^"')]+)["']?\)''',text))
-              for ref in refs:
-                  ref=ref.strip()
-                  if not ref or ref.endswith('\\') or ref.startswith(('data:','blob:','mailto:','tel:','#')): continue
-                  nu=urljoin(url,ref)
-                  if urlparse(nu).netloc==HOST and nu not in seen:
-                      queue.append(nu)
-
-          for rel,want in EXPECTED.items():
-              p=ROOT/rel
-              if not p.is_file(): raise SystemExit(f'Missing exact Site v28 file: {rel}')
+          for rel,want in expected.items():
+              p=root/rel
+              if not p.is_file(): raise SystemExit('Missing exact Site v28 asset: '+rel)
               got=hashlib.sha256(p.read_bytes()).hexdigest()
-              if got!=want: raise SystemExit(f'Site v28 checksum mismatch: {rel} {got}')
+              if got!=want: raise SystemExit('Checksum mismatch for '+rel)
 
-          text=''
-          for p in ROOT.rglob('*'):
-              if p.is_file() and p.suffix.lower() in text_ext:
-                  text += '\n'+p.read_text(encoding='utf-8',errors='ignore')
-          markers=['Стартовый цикл','Последний вывод','НАСТРОЙКИ ОДИН РАЗ','Мои биржи','Защищённые данные','Доступ тестировщиков','Добавить новую сделку']
-          missing=[m for m in markers if m not in text]
-          if missing: raise SystemExit('Original UI markers missing: '+', '.join(missing))
+          app=(root/'assets/page-W1M-VqDA.js').read_text(encoding='utf-8')
+          markers=['Стартовый цикл','Последний вывод','Настройки один раз','Мои биржи','Защищённые данные','Доступ тестировщиков','Добавить новую сделку','Скриншот, голос или ручной ввод','Торговые параметры']
+          missing=[m for m in markers if m not in app]
+          if missing: raise SystemExit('Original Sol UI markers missing: '+', '.join(missing))
 
-          # GitHub project pages live under /planfact-beta/. Rewrite ONLY asset URLs.
-          # No CSS, DOM, icons, text, layout or application logic is changed.
-          idx=ROOT/'index.html'
+          # Only adapt root asset URLs to GitHub project-pages location.
+          # CSS, JS, SVG icons, fonts, DOM, copy and layout remain untouched.
+          idx=root/'index.html'
           s=idx.read_text(encoding='utf-8')
           s=s.replace('"/assets/','"./assets/').replace("'/assets/","'./assets/")
           s=s.replace('href="/favicon.svg"','href="./favicon.svg"')
           idx.write_text(s,encoding='utf-8')
-          print('Exact Site v28 verified. Files:',sum(1 for p in ROOT.rglob('*') if p.is_file()))
+          print('Verified exact Sol interface files:',sum(1 for p in root.rglob('*') if p.is_file()))
           PY
       - name: Setup Pages
         uses: actions/configure-pages@v5
