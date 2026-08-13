@@ -19,21 +19,27 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Restore original PlanFact frontend
+      - name: Restore exact original PlanFact Site v28
         shell: bash
         run: |
           set -euo pipefail
           rm -rf site
           mkdir -p site
           curl --fail --silent --show-error --location 'https://planfact-trader.stockspeculator.chatgpt.site/' --output site/index.html
+          test -s site/index.html
+          grep -q '<title>PlanFact Trader</title>' site/index.html
+          grep -q 'assets/index-Da-M0CQm.css' site/index.html
           python3 - <<'PY'
           from pathlib import Path
           p=Path('site/index.html')
           s=p.read_text(encoding='utf-8')
+          # Keep the exact original HTML/CSS/JS. Only make relative assets resolve
+          # against the original Site v28 host when served from GitHub Pages.
           if '<head>' in s and '<base ' not in s:
               s=s.replace('<head>','<head><base href="https://planfact-trader.stockspeculator.chatgpt.site/">',1)
           p.write_text(s,encoding='utf-8')
           PY
+          echo "Exact Site v28 HTML restored: $(wc -c < site/index.html) bytes"
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
