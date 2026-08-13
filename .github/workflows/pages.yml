@@ -27,6 +27,7 @@ jobs:
           mkdir -p site
           curl --fail --silent --show-error --location 'https://vjglqivddspcolrzxmxt.supabase.co/functions/v1/planfact-beta-site' --output site/index.html
           python3 scripts/build_beta.py site/index.html
+          python3 scripts/support_patch.py site/index.html
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
