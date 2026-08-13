@@ -19,12 +19,40 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Build PlanFact Beta 0.8
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf site
+          mkdir -p site
+          curl --fail --silent --show-error --location \
+            'https://vjglqivddspcolrzxmxt.supabase.co/functions/v1/planfact-beta-site' \
+            --output site/index.html
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('site/index.html')
+          s = p.read_text(encoding='utf-8')
+          direct = 'https://vjglqivddspcolrzxmxt.supabase.co/functions/v1/planfact-beta-api'
+          gateway = 'https://vjglqivddspcolrzxmxt.supabase.co/functions/v1/planfact-beta-gateway'
+          s = s.replace(direct, gateway)
+          if not s.lstrip().lower().startswith('<!doctype html>'):
+              raise SystemExit('Beta source is not HTML')
+          if 'BETA 0.8' not in s or 'PlanFact Beta 0.8' not in s:
+              raise SystemExit('Unexpected Beta version')
+          if gateway not in s or direct in s:
+              raise SystemExit('Beta gateway replacement failed')
+          p.write_text(s, encoding='utf-8')
+          PY
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: ./site
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
