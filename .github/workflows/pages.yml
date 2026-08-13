@@ -19,71 +19,49 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Build and validate PlanFact Beta 0.8
+      - name: Build and validate Beta
         shell: bash
         run: |
           set -euo pipefail
           rm -rf site
           mkdir -p site
-          curl --fail --silent --show-error --location \
-            'https://vjglqivddspcolrzxmxt.supabase.co/functions/v1/planfact-beta-site' \
-            --output site/index.html
+          curl --fail --silent --show-error --location 'https://vjglqivddspcolrzxmxt.supabase.co/functions/v1/planfact-beta-site' --output site/index.html
           python3 - <<'PY'
           from pathlib import Path
-          p = Path('site/index.html')
-          s = p.read_text(encoding='utf-8')
-
-          direct = 'https://vjglqivddspcolrzxmxt.supabase.co/functions/v1/planfact-beta-api'
-          gateway = 'https://vjglqivddspcolrzxmxt.supabase.co/functions/v1/planfact-beta-gateway'
-          s = s.replace(direct, gateway)
-
-          replacements = {
-              'onclick="nav(\'\'+x[0]+\'\')"': 'onclick="nav(&quot;\'+x[0]+\'&quot;)"',
-              'onclick="nav(\'plans\')"': 'onclick="nav(&quot;plans&quot;)"',
-              'onclick="removeTrade(\'\'+esc(t.id)+\'\')"': 'onclick="removeTrade(&quot;\'+esc(t.id)+\'&quot;)"',
-              'onclick="setBeta(\'\'+u.accountCode+\'\',30,false,true)"': 'onclick="setBeta(&quot;\'+u.accountCode+\'&quot;,30,false,true)"',
-              'onclick="setBeta(\'\'+u.accountCode+\'\',90,false,true)"': 'onclick="setBeta(&quot;\'+u.accountCode+\'&quot;,90,false,true)"',
-              'onclick="setBeta(\'\'+u.accountCode+\'\',30,true,true)"': 'onclick="setBeta(&quot;\'+u.accountCode+\'&quot;,30,true,true)"',
-              'onclick="setBeta(\'\'+u.accountCode+\'\',30,false,false)"': 'onclick="setBeta(&quot;\'+u.accountCode+\'&quot;,30,false,false)"',
-              'onclick="blockUser(\'\'+u.accountCode+\'\','+(u.status==='blocked'?'false':'true')+')"': 'onclick="blockUser(&quot;\'+u.accountCode+\'&quot;,'+(u.status==='blocked'?'false':'true')+')"',
-          }
-          for old, new in replacements.items():
-              s = s.replace(old, new)
-
-          start = s.find('async function runAI()')
-          end = s.find('function supportModal', start)
-          if start < 0 or end < 0:
-              raise SystemExit('runAI block not found')
-          run_ai = r'''async function runAI(){var out=q('#aiout');out.innerHTML='<div class="aiout">Анализируем…</div>';try{var b=await call('analyze_discipline'),a=b.analysis||{},txt=(a.summary||'')+'\n\n'+(a.patterns||[]).map(function(p){return'• '+p.title+'\n'+p.evidence+'\nДействие: '+p.practicalAction}).join('\n\n')+'\n\nСледующий шаг: '+(a.nextStep||'');out.innerHTML='<div class="aiout">'+esc(txt)+'</div>'}catch(e){out.innerHTML='<div class="aiout error">'+esc(e.code||e.message)+'</div>'}}
-'''
-          s = s[:start] + run_ai + s[end:]
-
-          if not s.lstrip().lower().startswith('<!doctype html>'):
-              raise SystemExit('Beta source is not HTML')
-          if 'BETA 0.8' not in s or 'PlanFact Beta 0.8' not in s:
-              raise SystemExit('Unexpected Beta version')
-          if gateway not in s or direct in s:
-              raise SystemExit('Beta gateway replacement failed')
-
-          p.write_text(s, encoding='utf-8')
-          js_start = s.rfind('<script>') + len('<script>')
-          js_end = s.rfind('</script>')
-          if js_start < len('<script>') or js_end <= js_start:
-              raise SystemExit('Inline app script not found')
-          Path('site/app.js').write_text(s[js_start:js_end], encoding='utf-8')
+          p=Path('site/index.html')
+          s=p.read_text(encoding='utf-8')
+          direct='https://vjglqivddspcolrzxmxt.supabase.co/functions/v1/planfact-beta-api'
+          gateway='https://vjglqivddspcolrzxmxt.supabase.co/functions/v1/planfact-beta-gateway'
+          s=s.replace(direct,gateway)
+          pairs=[
+            ('onclick="nav(\'\'+x[0]+\'\')"','onclick="nav(&quot;\'+x[0]+\'&quot;)"'),
+            ('onclick="nav(\'plans\')"','onclick="nav(&quot;plans&quot;)"'),
+            ('onclick="removeTrade(\'\'+esc(t.id)+\'\')"','onclick="removeTrade(&quot;\'+esc(t.id)+\'&quot;)"'),
+            ('onclick="setBeta(\'\'+u.accountCode+\'\',30,false,true)"','onclick="setBeta(&quot;\'+u.accountCode+\'&quot;,30,false,true)"'),
+            ('onclick="setBeta(\'\'+u.accountCode+\'\',90,false,true)"','onclick="setBeta(&quot;\'+u.accountCode+\'&quot;,90,false,true)"'),
+            ('onclick="setBeta(\'\'+u.accountCode+\'\',30,true,true)"','onclick="setBeta(&quot;\'+u.accountCode+\'&quot;,30,true,true)"'),
+            ('onclick="setBeta(\'\'+u.accountCode+\'\',30,false,false)"','onclick="setBeta(&quot;\'+u.accountCode+\'&quot;,30,false,false)"'),
+            ('onclick="blockUser(\'\'+u.accountCode+\'\','+(u.status==='blocked'?'false':'true')+')"','onclick="blockUser(&quot;\'+u.accountCode+\'&quot;,'+(u.status==='blocked'?'false':'true')+')"')]
+          for old,new in pairs: s=s.replace(old,new)
+          a=s.find('async function runAI()')
+          b=s.find('function supportModal',a)
+          if a<0 or b<0: raise SystemExit('runAI block missing')
+          fixed="async function runAI(){var out=q('#aiout');out.innerHTML='<div class=\"aiout\">Анализируем…</div>';try{var x=await call('analyze_discipline'),z=x.analysis||{},txt=(z.summary||'')+'\\n\\n'+(z.patterns||[]).map(function(v){return'• '+v.title+'\\n'+v.evidence+'\\nДействие: '+v.practicalAction}).join('\\n\\n')+'\\n\\nСледующий шаг: '+(z.nextStep||'');out.innerHTML='<div class=\"aiout\">'+esc(txt)+'</div>'}catch(e){out.innerHTML='<div class=\"aiout error\">'+esc(e.code||e.message)+'</div>'}}\n"
+          s=s[:a]+fixed+s[b:]
+          if 'BETA 0.8' not in s or gateway not in s or direct in s: raise SystemExit('beta validation failed')
+          p.write_text(s,encoding='utf-8')
+          start=s.rfind('<script>')+8
+          end=s.rfind('</script>')
+          Path('site/app.js').write_text(s[start:end],encoding='utf-8')
           PY
           node --check site/app.js
           rm site/app.js
-
       - name: Setup Pages
         uses: actions/configure-pages@v5
-
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./site
-
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
