@@ -33,7 +33,7 @@ jobs:
           from zipfile import ZipFile
           import hashlib
 
-          root=Path('site')
+          root=Path('site').resolve()
           root.mkdir()
           with ZipFile('artifact.zip') as z:
               for name in z.namelist():
@@ -42,7 +42,9 @@ jobs:
                   rel=name[len('recovered-site/'):]
                   if not rel or '\\' in rel:
                       continue
-                  p=root/rel
+                  p=(root/rel).resolve()
+                  if p == root or root not in p.parents:
+                      raise SystemExit('Unsafe artifact path: '+rel)
                   p.parent.mkdir(parents=True,exist_ok=True)
                   p.write_bytes(z.read(name))
 
